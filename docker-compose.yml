@@ -1,0 +1,118 @@
+services:
+  spark-master:
+    build:
+      context: ./docker/spark
+      dockerfile: Dockerfile
+    image: iaburnout-spark:latest
+    container_name: iaburnout-spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    environment:
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_WORKER_PYTHON=python3
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    restart: unless-stopped
+    networks:
+      spark-network:
+        ipv4_address: 172.20.0.10
+    volumes:
+      - ./data:/data
+      - ./output:/output
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  spark-worker-1:
+    build:
+      context: ./docker/spark
+      dockerfile: Dockerfile
+    pull_policy: never
+    image: iaburnout-spark:latest
+    container_name: iaburnout-spark-worker-1
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    environment:
+      - SPARK_WORKER_CORES=${WORKER_CORES:-4}
+      - SPARK_WORKER_MEMORY=${WORKER_MEMORY:-4G}
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_WORKER_PYTHON=python3
+    ports:
+      - "8081:8081"
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      spark-network:
+        ipv4_address: 172.20.0.11
+    volumes:
+      - ./data:/data
+      - ./output:/output
+
+  spark-worker-2:
+    build:
+      context: ./docker/spark
+      dockerfile: Dockerfile
+    pull_policy: never
+    image: iaburnout-spark:latest
+    container_name: iaburnout-spark-worker-2
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    environment:
+      - SPARK_WORKER_CORES=${WORKER_CORES:-4}
+      - SPARK_WORKER_MEMORY=${WORKER_MEMORY:-4G}
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_WORKER_PYTHON=python3
+    ports:
+      - "8082:8081"
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      spark-network:
+        ipv4_address: 172.20.0.12
+    volumes:
+      - ./data:/data
+      - ./output:/output
+
+  jupyter-notebook:
+    build:
+      context: ./docker/jupyter
+      dockerfile: Dockerfile
+    pull_policy: never
+    image: iaburnout-jupyter:latest
+    container_name: iaburnout-jupyter-notebook
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - JUPYTER_ENABLE_LAB=yes
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_DRIVER_PYTHON=python3
+    ports:
+      - "8888:8888"
+      - "4040-4045:4040-4045"
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      spark-network:
+        ipv4_address: 172.20.0.20
+    volumes:
+      - ./data:/data
+      - ./notebooks:/home/jovyan/work/notebooks
+      - ./src:/home/jovyan/work/src
+      - ./output:/output
+    command: start-notebook.sh --NotebookApp.token='' --NotebookApp.password='' --ServerApp.root_dir=/home/jovyan/work
+
+networks:
+  spark-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
